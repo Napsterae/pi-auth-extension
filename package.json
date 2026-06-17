@@ -1,0 +1,30 @@
+{
+  "name": "pi-auth-extension",
+  "version": "1.0.0",
+  "description": "Extends pi with 50 AI providers — OAuth subscriptions, API keys, gateways, and local runtimes",
+  "main": "index.ts",
+  "scripts": {
+    "test": "tsx test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "authentication",
+    "oauth",
+    "api-keys",
+    "ai-providers"
+  ],
+  "author": "pi-auth-extension contributors",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
