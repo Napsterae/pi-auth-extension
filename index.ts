@@ -404,253 +404,147 @@ async function kimiRefresh(c: OAuthCredentials): Promise<OAuthCredentials> {
 }
 
 // ============================================================================
-// Register ALL 50 Providers
+// Register ALL 50 Providers — complete catalog with auth + models
 // ============================================================================
-// Strategy: Only add auth methods to providers pi already supports.
-// Never provide "models" on existing provider IDs — it REPLACES built-in models!
-// Only new providers (that pi doesn't ship with) get api/baseUrl/models.
+// Model lists are curated from oh-my-pi's catalog (models.json + descriptors.ts).
+// Background /v1/models discovery keeps them current.
 // ============================================================================
 export default function (pi: ExtensionAPI) {
   const ak = createApiKeyLogin;
-  const r = (l: string, u: string, p: string, pl: string, vb?: string) => ak({ label: l, authUrl: u, instructions: "Get your API key", prompt: `Paste your ${l} API key:`, placeholder: pl, validateBaseUrl: vb });
+  const r = (l: string, u: string, ph: string, vb?: string) => ak({ label: l, authUrl: u, instructions: "Get your API key", prompt: `Paste your ${l} API key:`, placeholder: ph, validateBaseUrl: vb });
 
-  // Collect providers that should get background model refresh from /v1/models
-  const refreshQueue: Array<{ id: string; baseUrl: string; envVar?: string }> = [];
-  const scheduleRefresh = (id: string, baseUrl: string, envVar?: string) => {
-    refreshQueue.push({ id, baseUrl, envVar });
-  };
-
-  // Local runtime login: prompts for base URL + optional API key
+  // Local runtime login helper
   const localLogin = (label: string, defaultUrl: string) => async (cb: OAuthLoginCallbacks): Promise<OAuthCredentials> => {
     const url = (await cb.onPrompt({ message: `${label} base URL (blank for ${defaultUrl}):` }))?.trim() || defaultUrl;
     const key = (await cb.onPrompt({ message: `${label} API key (blank for none):` }))?.trim() || "";
-    return { refresh: key, access: key, expires: Date.now() + 10 * 365 * 24 * 60 * 60 * 1000 };
+    return { access: key, refresh: key, expires: Date.now() + 10 * 365 * 24 * 60 * 60 * 1000 };
   };
 
-  // Helper: API key provider config (oauth wrapper for /login prompt)
-  const akOauth = (name: string, label: string, authUrl: string, ph: string, vb?: string) => ({
-    name, login: r(label, authUrl, `Paste your ${label} API key:`, ph, vb), refreshToken: nc, getApiKey: ga
-  });
-
   // ========================================================================
-  // OAuth SUBSCRIPTION PROVIDERS
+  // PROVIDER TABLE — single source of truth for all 50 providers
   // ========================================================================
-
-  // anthropic — built-in pi provider, just add OAuth (DON'T touch models/api/baseUrl!)
-  pi.registerProvider("anthropic", {
-    oauth: { name: "Anthropic (Claude Pro/Max)", login: anthropicLogin, refreshToken: anthropicRefresh, getApiKey: ga }
-  });
-
-  // openai-codex — NEW provider (pi doesn't have codex subscriptions built-in)
-  pi.registerProvider("openai-codex", {
-    name: "OpenAI Codex (ChatGPT Plus/Pro)",
-    baseUrl: "https://api.openai.com/v1",
-    apiKey: "$OPENAI_API_KEY",
-    api: "openai-codex-responses",
-    models: staticModels("gpt-4o", "gpt-4.1", "o4-mini", "o3", "o3-mini", "gpt-5"),
-    oauth: { name: "ChatGPT Plus/Pro (Codex Subscription)", login: openaiCodexLogin, refreshToken: openaiCodexRefresh, getApiKey: ga }
-  });
-  scheduleRefresh("openai-codex", "https://api.openai.com/v1", "OPENAI_API_KEY");
-
-  // openai-codex-device — same codex provider, different /login entry
-  pi.registerProvider("openai-codex-device", {
-    name: "OpenAI Codex (Device)",
-    baseUrl: "https://api.openai.com/v1",
-    apiKey: "$OPENAI_API_KEY",
-    api: "openai-codex-responses",
-    models: staticModels("gpt-4o", "gpt-4.1", "o4-mini", "o3", "o3-mini", "gpt-5"),
-    oauth: { name: "ChatGPT Plus/Pro (Codex, headless)", login: openaiCodexLogin, refreshToken: openaiCodexRefresh, getApiKey: ga }
-  });
-  scheduleRefresh("openai-codex-device", "https://api.openai.com/v1", "OPENAI_API_KEY");
-
-  // xai-oauth — NEW provider for xAI Grok SuperGrok subscription
-  pi.registerProvider("xai-oauth", {
-    name: "xAI Grok (SuperGrok)",
-    baseUrl: "https://api.x.ai/v1",
-    apiKey: "$XAI_API_KEY",
-    api: "openai-completions",
-    models: staticModels("grok-4.3", "grok-4.2", "grok-4.1", "grok-4"),
-    oauth: { name: "xAI Grok OAuth (SuperGrok Subscription)", login: xaiLogin, refreshToken: xaiRefresh, getApiKey: ga }
-  });
-  scheduleRefresh("xai-oauth", "https://api.x.ai/v1", "XAI_API_KEY");
-
-  // google-antigravity — NEW provider (no standard /v1/models, static only)
-  pi.registerProvider("google-antigravity", {
-    name: "Antigravity (Gemini 3, Claude, GPT-OSS)",
-    baseUrl: "https://cloudcode-pa.googleapis.com/v1",
-    api: "openai-completions",
-    models: staticModels("gemini-2.5-pro", "gemini-2.5-flash", "claude-sonnet-4-5", "gpt-oss-120b"),
-    oauth: { name: "Antigravity (Gemini 3, Claude, GPT-OSS)", login: antigravityLogin, refreshToken: antigravityRefresh, getApiKey: ga }
-  });
-
-  // google-gemini-cli — NEW provider for Google Cloud Code Assist (no standard /v1/models, static only)
-  pi.registerProvider("google-gemini-cli", {
-    name: "Google Cloud Code Assist",
-    baseUrl: "https://cloudcode-pa.googleapis.com/v1",
-    api: "openai-completions",
-    models: staticModels("gemini-2.5-pro", "gemini-2.5-flash"),
-    oauth: { name: "Google Cloud Code Assist (Gemini CLI)", login: geminiCliLogin, refreshToken: geminiCliRefresh, getApiKey: ga }
-  });
-
-  // gitlab-duo — NEW provider (no standard /v1/models, static only)
-  pi.registerProvider("gitlab-duo", {
-    name: "GitLab Duo",
-    baseUrl: "https://gitlab.com/api/v4/code_suggestions",
-    api: "openai-completions",
-    models: staticModels("claude-sonnet-4-5", "claude-opus-4-5"),
-    oauth: { name: "GitLab Duo", login: gitlabDuoLogin, refreshToken: gitlabDuoRefresh, getApiKey: ga }
-  });
-
-  // github-copilot — NEW provider (no standard /v1/models, static only)
-  pi.registerProvider("github-copilot", {
-    name: "GitHub Copilot",
-    baseUrl: "https://api.githubcopilot.com",
-    api: "openai-completions",
-    models: staticModels("gpt-4o", "claude-sonnet-4-5", "gemini-2.5-flash"),
-    oauth: { name: "GitHub Copilot", login: githubCopilotLogin, refreshToken: nc, getApiKey: ga }
-  });
-
-  // kimi-code — NEW provider
-  pi.registerProvider("kimi-code", {
-    name: "Kimi Code",
-    baseUrl: "https://api.kimi.com/v1",
-    api: "openai-completions",
-    models: staticModels("kimi-k2.6", "kimi-k2.5"),
-    oauth: { name: "Kimi Code", login: kimiLogin, refreshToken: kimiRefresh, getApiKey: ga }
-  });
-  scheduleRefresh("kimi-code", "https://api.kimi.com/v1", "KIMI_API_KEY");
-
-  // ========================================================================
-  // API KEY PROVIDERS — only add apiKey + oauth, DON'T touch built-in models
-  // These augment pi's existing built-in providers with /login support.
-  // ========================================================================
-
-  // deepseek — built-in pi provider, just add apiKey + /login flow
-  pi.registerProvider("deepseek", {
-    apiKey: "$DEEPSEEK_API_KEY",
-    oauth: akOauth("DeepSeek", "DeepSeek", "https://platform.deepseek.com/api_keys", "sk-...", "https://api.deepseek.com/v1")
-  });
-
-  // cerebras — built-in pi provider
-  pi.registerProvider("cerebras", {
-    apiKey: "$CEREBRAS_API_KEY",
-    oauth: akOauth("Cerebras", "Cerebras", "https://cloud.cerebras.ai/", "csk-...", "https://api.cerebras.ai/v1")
-  });
-
-  // fireworks — built-in pi provider
-  pi.registerProvider("fireworks", {
-    apiKey: "$FIREWORKS_API_KEY",
-    oauth: akOauth("Fireworks", "Fireworks", "https://fireworks.ai/", "fw-...", "https://api.fireworks.ai/inference/v1")
-  });
-
-  // together — built-in pi provider
-  pi.registerProvider("together", {
-    apiKey: "$TOGETHER_API_KEY",
-    oauth: akOauth("Together AI", "Together", "https://api.together.xyz/", "together-...", "https://api.together.xyz/v1")
-  });
-
-  // nvidia — built-in pi provider
-  pi.registerProvider("nvidia", {
-    apiKey: "$NVIDIA_API_KEY",
-    oauth: akOauth("NVIDIA NIM", "NVIDIA", "https://build.nvidia.com/", "nvapi-...", "https://integrate.api.nvidia.com/v1")
-  });
-
-  // huggingface — built-in pi provider
-  pi.registerProvider("huggingface", {
-    apiKey: "$HF_TOKEN",
-    oauth: akOauth("Hugging Face Inference", "HuggingFace", "https://huggingface.co/settings/tokens", "hf_...", "https://router.huggingface.co/v1")
-  });
-
-  // perplexity — built-in pi provider
-  pi.registerProvider("perplexity", {
-    apiKey: "$PERPLEXITY_API_KEY",
-    oauth: akOauth("Perplexity (Pro/Max)", "Perplexity", "https://www.perplexity.ai/settings/api", "pplx-...", "https://api.perplexity.ai")
-  });
-
-  // openrouter — built-in pi provider
-  pi.registerProvider("openrouter", {
-    apiKey: "$OPENROUTER_API_KEY",
-    oauth: akOauth("OpenRouter", "OpenRouter", "https://openrouter.ai/keys", "sk-or-...", "https://openrouter.ai/api/v1")
-  });
-
-  // ========================================================================
-  // API KEY PROVIDERS — NEW (pi doesn't have these built-in)
-  // ========================================================================
-  const newApiKeyProvider = (id: string, name: string, envVar: string, label: string, authUrl: string, ph: string, baseUrl: string, validateBaseUrl?: string, ...modelIds: string[]) => {
-    pi.registerProvider(id, {
-      name,
-      baseUrl,
-      apiKey: `$${envVar}`,
-      api: "openai-completions",
-      models: staticModels(...modelIds),
-      oauth: { name, login: r(label, authUrl, `Paste your ${label} API key:`, ph, validateBaseUrl), refreshToken: nc, getApiKey: ga }
-    });
-    scheduleRefresh(id, baseUrl, envVar);
+  type ProviderEntry = {
+    id: string; name: string; api: string; baseUrl: string;
+    apiKeyEnv: string; models: string[];
+    kind: "oauth-sub" | "oauth-sub-apikey" | "apikey" | "local";
+    authUrl?: string; placeholder?: string;
+    oauthLogin?: (cb: OAuthLoginCallbacks) => Promise<OAuthCredentials>;
+    oauthRefresh?: (c: OAuthCredentials) => OAuthCredentials | Promise<OAuthCredentials>;
   };
 
-  newApiKeyProvider("moonshot", "Moonshot (Kimi API)", "KIMI_API_KEY", "Moonshot", "https://platform.moonshot.cn/console/api-keys", "sk-...", "https://api.moonshot.cn/v1", "https://api.moonshot.cn/v1", "kimi-k2.5", "kimi-k2.6");
-  newApiKeyProvider("minimax-code", "MiniMax", "MINIMAX_API_KEY", "MiniMax", "https://platform.minimaxi.com/", "eyJ...", "https://api.minimaxi.com/v1", "https://api.minimaxi.com/v1", "MiniMax-Text-01", "MiniMax-M2.5");
-  newApiKeyProvider("minimax-code-cn", "MiniMax Coding Plan (China)", "MINIMAX_CN_API_KEY", "MiniMax CN", "https://platform.minimaxi.com/", "eyJ...", "https://api.minimaxi.com/v1", "https://api.minimaxi.com/v1", "MiniMax-Text-01", "MiniMax-M2.5");
-  newApiKeyProvider("xiaomi", "Xiaomi MiMo", "XIAOMI_API_KEY", "Xiaomi", "https://mimo.xiaomi.com/", "sk-...", "https://api.xiaomi.com/v1", "https://api.xiaomi.com/v1", "mimo-v2.5", "mimo-v2");
-  newApiKeyProvider("xiaomi-token-plan-sgp", "Xiaomi Token Plan (Singapore)", "XIAOMI_TOKEN_PLAN_SGP_API_KEY", "Xiaomi SGP", "https://mimo.xiaomi.com/", "sk-...", "https://api.xiaomi.com/v1", "https://api.xiaomi.com/v1", "mimo-v2.5");
-  newApiKeyProvider("xiaomi-token-plan-ams", "Xiaomi Token Plan (Europe)", "XIAOMI_TOKEN_PLAN_AMS_API_KEY", "Xiaomi AMS", "https://mimo.xiaomi.com/", "sk-...", "https://api.xiaomi.com/v1", "https://api.xiaomi.com/v1", "mimo-v2.5");
-  newApiKeyProvider("xiaomi-token-plan-cn", "Xiaomi Token Plan (China)", "XIAOMI_TOKEN_PLAN_CN_API_KEY", "Xiaomi CN", "https://mimo.xiaomi.com/", "sk-...", "https://api.xiaomi.com/v1", "https://api.xiaomi.com/v1", "mimo-v2.5");
-  newApiKeyProvider("zai", "Z.AI (GLM Coding Plan)", "ZAI_API_KEY", "ZAI", "https://z.ai/manage-apikey/apikey-list", "sk-...", "https://api.z.ai/api/coding/paas/v4", "https://api.z.ai/api/coding/paas/v4", "glm-5.1", "glm-5");
-  newApiKeyProvider("zhipu-coding-plan", "Zhipu Coding Plan", "ZHIPU_API_KEY", "Zhipu", "https://open.bigmodel.cn/usercenter/apikeys", "...", "https://open.bigmodel.cn/api/coding/paas/v4", "https://open.bigmodel.cn/api/coding/paas/v4", "glm-4.7", "glm-4.5");
-  newApiKeyProvider("qianfan", "Qianfan (Baidu)", "QIANFAN_API_KEY", "Qianfan", "https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application", "...", "https://qianfan.baidubce.com/v2", "https://qianfan.baidubce.com/v2", "ernie-4.5", "ernie-4.0");
-  newApiKeyProvider("qwen-portal", "Qwen Portal", "QWEN_API_KEY", "Qwen", "https://dashscope.console.aliyun.com/", "sk-...", "https://dashscope.aliyuncs.com/compatible-mode/v1", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3-max", "qwen3-coder-plus");
-  newApiKeyProvider("alibaba-coding-plan", "Alibaba Coding Plan", "ALIBABA_API_KEY", "Alibaba", "https://dashscope.console.aliyun.com/", "sk-...", "https://dashscope.aliyuncs.com/compatible-mode/v1", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3-coder-plus");
-  newApiKeyProvider("venice", "Venice", "VENICE_API_KEY", "Venice", "https://venice.ai/settings/api", "...", "https://api.venice.ai/api/v1", "https://api.venice.ai/api/v1", "llama-4-maverick", "deepseek-r1");
-  newApiKeyProvider("nanogpt", "NanoGPT", "NANOGPT_API_KEY", "NanoGPT", "https://nanogpt.com/", "...", "https://api.nanogpt.com/v1", "https://api.nanogpt.com/v1", "gpt-4o", "claude-sonnet-4-5");
-  newApiKeyProvider("cursor", "Cursor IDE", "CURSOR_API_KEY", "Cursor", "https://www.cursor.com/settings", "...", "https://api.cursor.com/v1", "https://api.cursor.com/v1", "claude-sonnet-4-5", "gpt-4o");
-  newApiKeyProvider("firepass", "Fire Pass", "FIREPASS_API_KEY", "FirePass", "https://fireworks.ai/", "fw-...", "https://api.fireworks.ai/inference/v1", "https://api.fireworks.ai/inference/v1", "kimi-k2.6-turbo");
-  newApiKeyProvider("wafer-pass", "Wafer Pass", "WAFER_API_KEY", "WaferPass", "https://wafer.ai/", "...", "https://api.wafer.ai/v1", "https://api.wafer.ai/v1", "GLM-5.1", "gpt-4o");
-  newApiKeyProvider("wafer-serverless", "Wafer Serverless", "WAFER_SERVERLESS_API_KEY", "WaferServerless", "https://wafer.ai/", "...", "https://api.wafer.ai/v1", "https://api.wafer.ai/v1", "GLM-5.1", "gpt-4o");
-  newApiKeyProvider("synthetic", "Synthetic", "SYNTHETIC_API_KEY", "Synthetic", "https://synthetic.ai/", "...", "https://api.synthetic.ai/v1", "https://api.synthetic.ai/v1", "synthetic-1");
+  const PROVIDERS: ProviderEntry[] = [
+    // === OAuth Subscriptions (oauth only — pi handles routing via specialModelManager) ===
+    { id:"anthropic",          name:"Anthropic (Claude Pro/Max)",              api:"anthropic-messages",     baseUrl:"https://api.anthropic.com/v1",     apiKeyEnv:"ANTHROPIC_API_KEY",   models:["claude-opus-4-8","claude-sonnet-4-5","claude-haiku-3.5"], kind:"oauth-sub", oauthLogin:anthropicLogin, oauthRefresh:anthropicRefresh },
+    { id:"openai-codex",       name:"ChatGPT Plus/Pro (Codex Subscription)",   api:"openai-codex-responses", baseUrl:"https://chatgpt.com/backend-api",     apiKeyEnv:"OPENAI_API_KEY",      models:["gpt-5.5","gpt-5","gpt-4.1","o4-mini","o3","o3-mini"], kind:"oauth-sub", oauthLogin:openaiCodexLogin, oauthRefresh:openaiCodexRefresh },
+    { id:"openai-codex-device",name:"ChatGPT Plus/Pro (Codex, headless)",      api:"openai-codex-responses", baseUrl:"https://chatgpt.com/backend-api",     apiKeyEnv:"OPENAI_API_KEY",      models:["gpt-5.5","gpt-5","gpt-4.1","o4-mini","o3","o3-mini"], kind:"oauth-sub", oauthLogin:openaiCodexLogin, oauthRefresh:openaiCodexRefresh },
+    { id:"google-antigravity", name:"Antigravity (Gemini 3, Claude, GPT-OSS)", api:"openai-completions",     baseUrl:"https://cloudcode-pa.googleapis.com/v1",apiKeyEnv:"",                 models:["gemini-3.1-pro","gemini-2.5-pro","gemini-2.5-flash"], kind:"oauth-sub", oauthLogin:antigravityLogin, oauthRefresh:antigravityRefresh },
+    { id:"google-gemini-cli",  name:"Google Cloud Code Assist (Gemini CLI)",    api:"openai-completions",     baseUrl:"https://cloudcode-pa.googleapis.com/v1",apiKeyEnv:"",                 models:["gemini-3.1-pro-preview","gemini-2.5-pro","gemini-2.5-flash"], kind:"oauth-sub", oauthLogin:geminiCliLogin, oauthRefresh:geminiCliRefresh },
+    // gitlab-duo: pi handles routing via streamGitLabDuo, no models needed from us
+    { id:"gitlab-duo",         name:"GitLab Duo",                               api:"",                       baseUrl:"",                                   apiKeyEnv:"GITLAB_TOKEN",        models:[], kind:"oauth-sub", oauthLogin:gitlabDuoLogin, oauthRefresh:gitlabDuoRefresh },
+
+    // === OAuth Subscriptions + API key fallback ===
+    { id:"xai-oauth",          name:"xAI Grok (SuperGrok Subscription)",        api:"openai-completions",     baseUrl:"https://api.x.ai/v1",               apiKeyEnv:"XAI_OAUTH_TOKEN",      models:["grok-4.3","grok-4.2","grok-4.1","grok-4"], kind:"oauth-sub-apikey", oauthLogin:xaiLogin, oauthRefresh:xaiRefresh },
+    { id:"github-copilot",     name:"GitHub Copilot",                           api:"openai-completions",     baseUrl:"https://api.githubcopilot.com",      apiKeyEnv:"COPILOT_GITHUB_TOKEN", models:["gpt-5.5","gpt-4o","claude-sonnet-4-5","gemini-2.5-flash"], kind:"oauth-sub-apikey", oauthLogin:githubCopilotLogin, oauthRefresh:nc },
+    { id:"kimi-code",          name:"Kimi Code",                                api:"openai-completions",     baseUrl:"https://api.kimi.com/v1",            apiKeyEnv:"KIMI_API_KEY",        models:["kimi-for-coding","kimi-k2.7-code","kimi-k2.6","kimi-k2.5"], kind:"oauth-sub-apikey", oauthLogin:kimiLogin, oauthRefresh:kimiRefresh },
+
+    // === API Key Providers ===
+    { id:"deepseek",           name:"DeepSeek",                api:"openai-completions", baseUrl:"https://api.deepseek.com",                        apiKeyEnv:"DEEPSEEK_API_KEY",                models:["deepseek-v4-pro","deepseek-chat","deepseek-reasoner"], kind:"apikey", authUrl:"https://platform.deepseek.com/api_keys",                                   placeholder:"sk-..." },
+    { id:"cerebras",           name:"Cerebras",                api:"openai-completions", baseUrl:"https://api.cerebras.ai/v1",                      apiKeyEnv:"CEREBRAS_API_KEY",                models:["zai-glm-4.7","llama-4-maverick","gpt-oss-120b"], kind:"apikey", authUrl:"https://cloud.cerebras.ai/",                                                   placeholder:"csk-..." },
+    { id:"fireworks",          name:"Fireworks",               api:"openai-completions", baseUrl:"https://api.fireworks.ai/inference/v1",            apiKeyEnv:"FIREWORKS_API_KEY",               models:["kimi-k2.7-code","kimi-k2.6","llama-4-maverick"], kind:"apikey", authUrl:"https://fireworks.ai/",                                                           placeholder:"fw-..." },
+    { id:"together",           name:"Together AI",             api:"openai-completions", baseUrl:"https://api.together.xyz/v1",                     apiKeyEnv:"TOGETHER_API_KEY",                models:["moonshotai/Kimi-K2.7-Code","meta-llama/Llama-4-Maverick"], kind:"apikey", authUrl:"https://api.together.xyz/",                                                       placeholder:"together-..." },
+    { id:"nvidia",             name:"NVIDIA NIM",              api:"openai-completions", baseUrl:"https://integrate.api.nvidia.com/v1",             apiKeyEnv:"NVIDIA_API_KEY",                  models:["nvidia/llama-3.1-nemotron-70b-instruct"], kind:"apikey", authUrl:"https://build.nvidia.com/",                                                       placeholder:"nvapi-..." },
+    { id:"huggingface",        name:"Hugging Face Inference",  api:"openai-completions", baseUrl:"https://router.huggingface.co/v1",               apiKeyEnv:"HF_TOKEN",                        models:["deepseek-ai/DeepSeek-R1","meta-llama/Llama-4-Maverick"], kind:"apikey", authUrl:"https://huggingface.co/settings/tokens",                                          placeholder:"hf_..." },
+    { id:"perplexity",         name:"Perplexity (Pro/Max)",    api:"openai-completions", baseUrl:"https://api.perplexity.ai",                       apiKeyEnv:"PERPLEXITY_API_KEY",              models:["sonar-pro","sonar-reasoning-pro"], kind:"apikey", authUrl:"https://www.perplexity.ai/settings/api",                                          placeholder:"pplx-..." },
+    { id:"moonshot",           name:"Moonshot (Kimi API)",     api:"openai-completions", baseUrl:"https://api.moonshot.cn/v1",                     apiKeyEnv:"KIMI_API_KEY",                    models:["kimi-k2.7-code","kimi-k2.6","kimi-k2.5"], kind:"apikey", authUrl:"https://platform.moonshot.cn/console/api-keys",                                   placeholder:"sk-..." },
+    { id:"minimax-code",       name:"MiniMax",                 api:"openai-completions", baseUrl:"https://api.minimaxi.com/v1",                     apiKeyEnv:"MINIMAX_API_KEY",                 models:["MiniMax-M3","MiniMax-Text-01"], kind:"apikey", authUrl:"https://platform.minimaxi.com/",                                                   placeholder:"eyJ..." },
+    { id:"minimax-code-cn",    name:"MiniMax Coding (China)",  api:"openai-completions", baseUrl:"https://api.minimaxi.com/v1",                     apiKeyEnv:"MINIMAX_CN_API_KEY",              models:["MiniMax-M3"], kind:"apikey", authUrl:"https://platform.minimaxi.com/",                                                   placeholder:"eyJ..." },
+    { id:"xiaomi",             name:"Xiaomi MiMo",             api:"openai-completions", baseUrl:"https://api.xiaomi.com/v1",                       apiKeyEnv:"XIAOMI_API_KEY",                  models:["mimo-v2-flash","mimo-v2.5","mimo-v2"], kind:"apikey", authUrl:"https://mimo.xiaomi.com/",                                                         placeholder:"sk-..." },
+    { id:"xiaomi-token-plan-sgp",name:"Xiaomi Token (Singapore)",api:"openai-completions", baseUrl:"https://api.xiaomi.com/v1",                     apiKeyEnv:"XIAOMI_TOKEN_PLAN_SGP_API_KEY",  models:["mimo-v2.5"], kind:"apikey", authUrl:"https://mimo.xiaomi.com/",                                                         placeholder:"sk-..." },
+    { id:"xiaomi-token-plan-ams",name:"Xiaomi Token (Europe)", api:"openai-completions", baseUrl:"https://api.xiaomi.com/v1",                       apiKeyEnv:"XIAOMI_TOKEN_PLAN_AMS_API_KEY",  models:["mimo-v2.5"], kind:"apikey", authUrl:"https://mimo.xiaomi.com/",                                                         placeholder:"sk-..." },
+    { id:"xiaomi-token-plan-cn", name:"Xiaomi Token (China)",  api:"openai-completions", baseUrl:"https://api.xiaomi.com/v1",                       apiKeyEnv:"XIAOMI_TOKEN_PLAN_CN_API_KEY",   models:["mimo-v2.5"], kind:"apikey", authUrl:"https://mimo.xiaomi.com/",                                                         placeholder:"sk-..." },
+    { id:"zai",                name:"Z.AI (GLM Coding Plan)",  api:"openai-completions", baseUrl:"https://api.z.ai/api/coding/paas/v4",            apiKeyEnv:"ZAI_API_KEY",                     models:["glm-5.2","glm-5.1","glm-5"], kind:"apikey", authUrl:"https://z.ai/manage-apikey/apikey-list",                                           placeholder:"sk-..." },
+    { id:"zhipu-coding-plan",  name:"Zhipu Coding Plan",       api:"openai-completions", baseUrl:"https://open.bigmodel.cn/api/coding/paas/v4",    apiKeyEnv:"ZHIPU_API_KEY",                   models:["glm-5.2","glm-4.7","glm-4.5"], kind:"apikey", authUrl:"https://open.bigmodel.cn/usercenter/apikeys",                                      placeholder:"..." },
+    { id:"qianfan",            name:"Qianfan (Baidu)",         api:"openai-completions", baseUrl:"https://qianfan.baidubce.com/v2",                apiKeyEnv:"QIANFAN_API_KEY",                 models:["deepseek-v3.2","ernie-4.5","ernie-4.0"], kind:"apikey", authUrl:"https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application", placeholder:"..." },
+    { id:"qwen-portal",        name:"Qwen Portal",             api:"openai-completions", baseUrl:"https://dashscope.aliyuncs.com/compatible-mode/v1",apiKeyEnv:"QWEN_API_KEY",                   models:["coder-model","qwen3-max","qwen3-coder-plus"], kind:"apikey", authUrl:"https://dashscope.console.aliyun.com/",                                            placeholder:"sk-..." },
+    { id:"alibaba-coding-plan",name:"Alibaba Coding Plan",     api:"openai-completions", baseUrl:"https://dashscope.aliyuncs.com/compatible-mode/v1",apiKeyEnv:"ALIBABA_API_KEY",               models:["qwen3.7-plus","qwen3-coder-plus"], kind:"apikey", authUrl:"https://dashscope.console.aliyun.com/",                                            placeholder:"sk-..." },
+    { id:"venice",             name:"Venice",                  api:"openai-completions", baseUrl:"https://api.venice.ai/api/v1",                   apiKeyEnv:"VENICE_API_KEY",                  models:["llama-3.3-70b","llama-4-maverick","deepseek-r1"], kind:"apikey", authUrl:"https://venice.ai/settings/api",                                                    placeholder:"..." },
+    { id:"nanogpt",            name:"NanoGPT",                 api:"openai-completions", baseUrl:"https://api.nanogpt.com/v1",                     apiKeyEnv:"NANOGPT_API_KEY",                 models:["openai/gpt-5.5","gpt-4o","claude-sonnet-4-5"], kind:"apikey", authUrl:"https://nanogpt.com/",                                                              placeholder:"..." },
+    { id:"cursor",             name:"Cursor IDE",              api:"openai-completions", baseUrl:"https://api.cursor.com/v1",                      apiKeyEnv:"CURSOR_API_KEY",                  models:["claude-4.6-opus-high","claude-sonnet-4-5","gpt-4o"], kind:"apikey", authUrl:"https://www.cursor.com/settings",                                                    placeholder:"..." },
+    { id:"firepass",           name:"Fire Pass",               api:"openai-completions", baseUrl:"https://api.fireworks.ai/inference/v1",          apiKeyEnv:"FIREPASS_API_KEY",                models:["kimi-k2.6-turbo"], kind:"apikey", authUrl:"https://fireworks.ai/",                                                             placeholder:"fw-..." },
+    { id:"wafer-pass",         name:"Wafer Pass (flat-rate)",  api:"openai-completions", baseUrl:"https://api.wafer.ai/v1",                       apiKeyEnv:"WAFER_API_KEY",                   models:["GLM-5.1","gpt-4o"], kind:"apikey", authUrl:"https://wafer.ai/",                                                                 placeholder:"..." },
+    { id:"wafer-serverless",   name:"Wafer Serverless",        api:"openai-completions", baseUrl:"https://api.wafer.ai/v1",                       apiKeyEnv:"WAFER_SERVERLESS_API_KEY",        models:["GLM-5.1","gpt-4o"], kind:"apikey", authUrl:"https://wafer.ai/",                                                                 placeholder:"..." },
+    { id:"synthetic",          name:"Synthetic",               api:"openai-completions", baseUrl:"https://api.synthetic.ai/v1",                   apiKeyEnv:"SYNTHETIC_API_KEY",               models:["hf:zai-org/GLM-5.1"], kind:"apikey", authUrl:"https://synthetic.ai/",                                                             placeholder:"..." },
+    { id:"openrouter",         name:"OpenRouter",              api:"openai-completions", baseUrl:"https://openrouter.ai/api/v1",                  apiKeyEnv:"OPENROUTER_API_KEY",              models:["openai/gpt-5.5","anthropic/claude-opus-4-8","google/gemini-2.5-pro"], kind:"apikey", authUrl:"https://openrouter.ai/keys",                                                       placeholder:"sk-or-..." },
+
+    // === Gateways ===
+    { id:"vercel-ai-gateway",     name:"Vercel AI Gateway",     api:"openai-completions", baseUrl:"https://api.gateway.ai/v1",                   apiKeyEnv:"AI_GATEWAY_API_KEY",              models:["anthropic/claude-opus-4-8","gpt-4o"], kind:"apikey", authUrl:"https://vercel.com/dashboard/stores",                                               placeholder:"..." },
+    { id:"cloudflare-ai-gateway", name:"Cloudflare AI Gateway", api:"openai-completions", baseUrl:"https://gateway.ai.cloudflare.com/v1",         apiKeyEnv:"CLOUDFLARE_API_KEY",              models:["@cf/meta/llama-4","@cf/deepseek-ai/deepseek-r1"], kind:"apikey", authUrl:"https://dash.cloudflare.com/",                                                      placeholder:"..." },
+    { id:"litellm",               name:"LiteLLM",               api:"openai-completions", baseUrl:"https://api.litellm.ai/v1",                    apiKeyEnv:"LITELLM_API_KEY",                 models:["claude-opus-4-8","gpt-4o"], kind:"apikey", authUrl:"https://docs.litellm.ai/",                                                          placeholder:"sk-..." },
+    { id:"kilo",                  name:"Kilo Gateway",          api:"openai-completions", baseUrl:"https://api.kilo.ai/api/gateway",              apiKeyEnv:"KILO_API_KEY",                    models:["anthropic/claude-opus-4.8","gpt-4o"], kind:"apikey", authUrl:"https://kilo.ai/",                                                                  placeholder:"..." },
+    { id:"zenmux",                name:"ZenMux",                api:"openai-completions", baseUrl:"https://api.zenmux.ai/v1",                     apiKeyEnv:"ZENMUX_API_KEY",                  models:["anthropic/claude-opus-4-8","gpt-4o"], kind:"apikey", authUrl:"https://zenmux.ai/",                                                                placeholder:"..." },
+    { id:"opencode-zen",          name:"OpenCode Zen",          api:"openai-completions", baseUrl:"https://opencode.ai/zen",                      apiKeyEnv:"OPENCODE_API_KEY",                models:["claude-opus-4-8","claude-sonnet-4-5"], kind:"apikey", authUrl:"https://opencode.ai/",                                                              placeholder:"..." },
+    { id:"opencode-go",           name:"OpenCode Go",           api:"openai-completions", baseUrl:"https://opencode.ai/zen/go",                   apiKeyEnv:"OPENCODE_API_KEY",                models:["kimi-k2.7-code","kimi-k2.6"], kind:"apikey", authUrl:"https://opencode.ai/",                                                              placeholder:"..." },
+
+    // === Local Runtimes ===
+    { id:"ollama",       name:"Ollama (Local)", api:"openai-completions", baseUrl:"http://localhost:11434/v1", apiKeyEnv:"",                    models:["gpt-oss:20b","llama3.2"], kind:"local" },
+    { id:"ollama-cloud", name:"Ollama Cloud",   api:"openai-completions", baseUrl:"https://api.ollama.com/v1",      apiKeyEnv:"OLLAMA_API_KEY", models:["gpt-oss:120b","qwen3"], kind:"apikey", authUrl:"https://ollama.com/settings/api-keys", placeholder:"..." },
+    { id:"lm-studio",    name:"LM Studio",      api:"openai-completions", baseUrl:"http://localhost:1234/v1",      apiKeyEnv:"",                    models:["llama-3-8b","llama-3.1-8b","mistral-7b"], kind:"local" },
+    { id:"vllm",         name:"vLLM (Local)",   api:"openai-completions", baseUrl:"http://localhost:8000/v1",      apiKeyEnv:"",                    models:["gpt-oss-20b","llama-3-8b","qwen3"], kind:"local" },
+  ];
 
   // ========================================================================
-  // GATEWAY PROVIDERS — NEW
+  // REGISTER ALL PROVIDERS from the table
   // ========================================================================
-  newApiKeyProvider("vercel-ai-gateway", "Vercel AI Gateway", "AI_GATEWAY_API_KEY", "VercelAI", "https://vercel.com/dashboard/stores", "...", "https://api.gateway.ai/v1", "https://api.gateway.ai/v1", "gpt-4o", "claude-sonnet-4-5");
-  newApiKeyProvider("cloudflare-ai-gateway", "Cloudflare AI Gateway", "CLOUDFLARE_API_KEY", "CloudflareAI", "https://dash.cloudflare.com/", "...", "https://gateway.ai.cloudflare.com/v1", "https://gateway.ai.cloudflare.com/v1", "@cf/meta/llama-4", "@cf/deepseek-ai/deepseek-r1");
-  newApiKeyProvider("litellm", "LiteLLM", "LITELLM_API_KEY", "LiteLLM", "https://docs.litellm.ai/", "sk-...", "https://api.litellm.ai/v1", "https://api.litellm.ai/v1", "gpt-4o", "claude-sonnet-4-5");
-  newApiKeyProvider("kilo", "Kilo Gateway", "KILO_API_KEY", "Kilo", "https://kilo.ai/", "...", "https://api.kilo.ai/api/gateway", "https://api.kilo.ai/api/gateway", "gpt-4o");
-  newApiKeyProvider("zenmux", "ZenMux", "ZENMUX_API_KEY", "ZenMux", "https://zenmux.ai/", "...", "https://api.zenmux.ai/v1", "https://api.zenmux.ai/v1", "gpt-4o", "claude-sonnet-4-5");
-  newApiKeyProvider("opencode-zen", "OpenCode Zen", "OPENCODE_API_KEY", "OpenCodeZen", "https://opencode.ai/", "...", "https://opencode.ai/zen", "https://opencode.ai/zen", "claude-sonnet-4-6", "claude-sonnet-4-5");
-  newApiKeyProvider("opencode-go", "OpenCode Go", "OPENCODE_API_KEY", "OpenCodeGo", "https://opencode.ai/", "...", "https://opencode.ai/zen/go", "https://opencode.ai/zen/go", "kimi-k2.5", "kimi-k2.6");
+  for (const p of PROVIDERS) {
+    const cfg: any = {
+      name: p.name,
+      apiKey: p.apiKeyEnv ? `$${p.apiKeyEnv}` : "",
+    };
+
+    // Only include api/baseUrl/models if the provider has them (not specialModelManager types)
+    if (p.api) cfg.api = p.api;
+    if (p.baseUrl) cfg.baseUrl = p.baseUrl;
+    if (p.models.length > 0) cfg.models = p.models.map(id => staticModel(id));
+
+    // OAuth / login flow
+    if (p.oauthLogin) {
+      cfg.oauth = {
+        name: p.name,
+        login: p.oauthLogin,
+        refreshToken: p.oauthRefresh ?? nc,
+        getApiKey: ga,
+      };
+    } else if (p.kind === "apikey" && p.authUrl) {
+      const vb = p.baseUrl ? `${p.baseUrl}/models` : undefined;
+      cfg.oauth = {
+        name: p.name,
+        login: r(p.name, p.authUrl, p.placeholder ?? "...", vb),
+        refreshToken: nc,
+        getApiKey: ga,
+      };
+    } else if (p.kind === "local") {
+      cfg.oauth = {
+        name: p.name,
+        login: localLogin(p.name, p.baseUrl),
+        refreshToken: nc,
+        getApiKey: ga,
+      };
+    }
+
+    pi.registerProvider(p.id, cfg);
+
+    // Schedule background model discovery for providers with a base URL
+    if (p.baseUrl && p.apiKeyEnv) {
+      (async () => { await refreshModelsInBackground(pi, p.id, p.baseUrl, p.apiKeyEnv); })();
+    }
+  }
 
   // ========================================================================
-  // LOCAL RUNTIMES
+  // SEARCH & TOOL BACKENDS — apiKey only (not in oh-my-pi model catalog)
   // ========================================================================
-  // ollama — built-in pi provider, just add /login flow for local config
-  pi.registerProvider("ollama", {
-    apiKey: "",
-    baseUrl: "http://localhost:11434/v1",
-    oauth: { name: "Ollama (Local)", login: localLogin("Ollama", "http://localhost:11434/v1"), refreshToken: nc, getApiKey: ga }
-  });
-
-  // ollama-cloud — NEW provider
-  newApiKeyProvider("ollama-cloud", "Ollama Cloud", "OLLAMA_API_KEY", "OllamaCloud", "https://ollama.com/settings/api-keys", "...", "https://api.ollama.com/v1", "https://api.ollama.com/v1", "llama3.2", "qwen3");
-
-  // lm-studio — NEW provider
-  pi.registerProvider("lm-studio", {
-    name: "LM Studio (Local)",
-    baseUrl: "http://localhost:1234/v1",
-    apiKey: "",
-    api: "openai-completions",
-    models: staticModels("llama-3-8b", "llama-3.1-8b", "mistral-7b"),
-    oauth: { name: "LM Studio (Local)", login: localLogin("LM Studio", "http://localhost:1234/v1"), refreshToken: nc, getApiKey: ga }
-  });
-
-  // vllm — NEW provider
-  pi.registerProvider("vllm", {
-    name: "vLLM (Local)",
-    baseUrl: "http://localhost:8000/v1",
-    apiKey: "",
-    api: "openai-completions",
-    models: staticModels("llama-3-8b", "qwen3", "gemma-3"),
-    oauth: { name: "vLLM (Local)", login: localLogin("vLLM", "http://localhost:8000/v1"), refreshToken: nc, getApiKey: ga }
-  });
+  pi.registerProvider("tavily",   { name: "Tavily",   apiKey: "$TAVILY_API_KEY" });
+  pi.registerProvider("kagi",     { name: "Kagi",     apiKey: "$KAGI_API_KEY" });
+  pi.registerProvider("parallel", { name: "Parallel", apiKey: "$PARALLEL_API_KEY" });
 
   // ========================================================================
   // LOCAL PROVIDER INSTANCES — pre-configured via PI_AUTH_LOCAL_PROVIDERS env var
@@ -672,7 +566,7 @@ export default function (pi: ExtensionAPI) {
           models: staticModels("discover-at-startup"),
           oauth: { name: c.name, login: localLogin(c.name, c.baseUrl), refreshToken: nc, getApiKey: ga }
         });
-        scheduleRefresh(`local-${c.id}`, c.baseUrl);
+        refreshModelsInBackground(pi, `local-${c.id}`, c.baseUrl);
       }
     } catch { /* invalid JSON, silently skip */ }
   }
@@ -736,8 +630,7 @@ export default function (pi: ExtensionAPI) {
         oauth: { name, login: localLogin(name, baseUrl), refreshToken: nc, getApiKey: ga }
       });
 
-      // Schedule and immediately trigger background model discovery
-      scheduleRefresh(providerId, baseUrl);
+      // Immediately trigger background model discovery
       refreshModelsInBackground(pi, providerId, baseUrl);
 
       ui.notify?.(`\u2713 Added "${name}" (${providerId}) at ${baseUrl}`, "success");
@@ -750,13 +643,6 @@ export default function (pi: ExtensionAPI) {
   pi.registerProvider("tavily", { name: "Tavily", apiKey: "$TAVILY_API_KEY" });
   pi.registerProvider("kagi", { name: "Kagi", apiKey: "$KAGI_API_KEY" });
   pi.registerProvider("parallel", { name: "Parallel", apiKey: "$PARALLEL_API_KEY" });
-
-  // Background model refresh — fire-and-forget, updates models live if /v1/models succeeds
-  pi.on("session_start", () => {
-    for (const entry of refreshQueue) {
-      refreshModelsInBackground(pi, entry.id, entry.baseUrl, entry.envVar);
-    }
-  });
 
   pi.on("session_start", (_: any, ctx: any) => { ctx.ui.setStatus("auth", "50 providers loaded"); });
 }
