@@ -207,6 +207,53 @@ Add credentials to `~/.pi/agent/auth.json`:
 }
 ```
 
+## Multiple Local Instances
+
+You can add unlimited instances of local providers — different machines, GPUs,
+ports, or API servers — and each appears as a separate model provider in pi.
+
+### Quick: `/local-add` command
+
+```bash
+# One-shot: type, name, URL, optional API key
+/local-add ollama ollama-gpu http://192.168.1.50:11434/v1
+/local-add vllm vllm-large http://localhost:8001/v1
+/local-add openai tabbyapi http://localhost:5000/v1 sk-optional-key
+/local-add anthropic claude-local http://localhost:8080/v1
+
+# Interactive: run without args, pi prompts for each field
+/local-add
+```
+
+The instance is registered immediately — no restart needed. Models are
+discovered from `/v1/models` in the background.
+
+Supported types: `ollama` | `lm-studio` | `vllm` | `openai` | `anthropic`
+
+### Pre-configure: `PI_AUTH_LOCAL_PROVIDERS` env var
+
+Set this before starting pi to auto-register instances:
+
+```bash
+export PI_AUTH_LOCAL_PROVIDERS='[
+  {"id":"ollama-gpu","name":"Ollama GPU","type":"ollama","baseUrl":"http://192.168.1.50:11434/v1"},
+  {"id":"ollama-eu","name":"Ollama EU","type":"ollama","baseUrl":"https://ollama-eu.example.com/v1","apiKey":"sk-..."},
+  {"id":"vllm-large","name":"vLLM Large","type":"vllm","baseUrl":"http://localhost:8001/v1"}
+]'
+```
+
+Each entry requires `id`, `name`, `type`, and `baseUrl`. `apiKey` is optional.
+
+### How it works
+
+- Each instance gets a unique provider ID (`local-<slug>`) to avoid collisions
+  with built-in providers
+- Models are fetched from `<baseUrl>/models` on registration and kept fresh
+  via background refresh
+- Each instance appears in `/login` with its own configuration dialog
+- Credentials are stored in `~/.pi/agent/auth.json` under the instance's
+  provider ID
+
 ## How It Works
 
 The extension uses `pi.registerProvider()` to register each provider with its authentication flow:

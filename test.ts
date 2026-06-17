@@ -60,10 +60,10 @@ const EXPECTED_PROVIDERS: Record<string, {
   "tavily":               { id:"tavily", name:"Tavily", category:"search-tool", hasOAuth:false, hasApiKey:true, description:"Tavily web search API" },
   "kagi":                 { id:"kagi", name:"Kagi", category:"search-tool", hasOAuth:false, hasApiKey:true, description:"Kagi search API" },
   "parallel":             { id:"parallel", name:"Parallel", category:"search-tool", hasOAuth:false, hasApiKey:true, description:"Parallel search API" },
-  "ollama":               { id:"ollama", name:"Ollama (Local)", category:"local-runtime", hasOAuth:false, hasApiKey:false, description:"Ollama local" },
+  "ollama":               { id:"ollama", name:"Ollama (Local)", category:"local-runtime", hasOAuth:true, hasApiKey:true, description:"Ollama local" },
   "ollama-cloud":         { id:"ollama-cloud", name:"Ollama Cloud", category:"local-runtime", hasOAuth:true, hasApiKey:true, description:"Ollama Cloud" },
-  "lm-studio":            { id:"lm-studio", name:"LM Studio (Local)", category:"local-runtime", hasOAuth:false, hasApiKey:false, description:"LM Studio local" },
-  "vllm":                 { id:"vllm", name:"vLLM (Local)", category:"local-runtime", hasOAuth:false, hasApiKey:false, description:"vLLM local" },
+  "lm-studio":            { id:"lm-studio", name:"LM Studio (Local)", category:"local-runtime", hasOAuth:true, hasApiKey:true, description:"LM Studio local" },
+  "vllm":                 { id:"vllm", name:"vLLM (Local)", category:"local-runtime", hasOAuth:true, hasApiKey:true, description:"vLLM local" },
 };
 
 // ============================================================================
